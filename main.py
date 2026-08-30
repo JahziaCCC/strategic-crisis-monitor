@@ -79,7 +79,7 @@ KEYWORDS = {
 }
 
 def filter_feed(urls, keywords):
-    """جلب وتصفية الأخبار مع تنظيف نصوص الـ HTML والروابط لضمان عملها في تليجرام"""
+    """جلب وتصفية الأخبار وضبط تنسيق الروابط لتكون صالحة للنقر في تليجرام"""
     matched_entries = []
     seen_titles = set()
     
@@ -88,11 +88,17 @@ def filter_feed(urls, keywords):
             feed = feedparser.parse(url)
             for entry in feed.entries[:20]:
                 title = entry.title.strip()
-                link = entry.link.strip()
+                raw_link = entry.link.strip()
                 
-                # تنظيف الرموز الخاصة بالروابط والنصوص لمتوافقات Telegram HTML
+                # تصحيح بداية الرابط لضمان مطابقة https بالكامل بحروف صغيرة
+                if raw_link.startswith("Https://"):
+                    raw_link = "https://" + raw_link[8:]
+                elif raw_link.startswith("Http://"):
+                    raw_link = "http://" + raw_link[7:]
+                
+                # تنظيف الرموز الخاصة
                 clean_title = html.escape(title)
-                clean_link = html.escape(link)
+                clean_link = html.escape(raw_link)
                 
                 if clean_title in seen_titles:
                     continue
@@ -130,7 +136,7 @@ def generate_report():
     report += "🌱 <b>3. الأمن المائي والغذائي والزراعي (MEWA والجهات التابعة)</b>\n"
     if mewa_news:
         for item in mewa_news[:4]:
-            report += f"• 🟢 <b>[خبر محلي/قطاعي]:</b> {item['title']}\n  🔗 <a href='{item['link']}'>رابط الخبر</a>\n"
+            report += f"• 🟢 <b>[خبر محلي/قطاعي]:</b> {item['title']}\n  🔗 <a href=\"{item['link']}\">رابط الخبر</a>\n"
     else:
         report += "• لا توجد مستجدات حرجة مسجلة في القطاع خلال الساعات الماضية.\n"
     report += "\n"
@@ -138,7 +144,7 @@ def generate_report():
     report += "☣️ <b>4. الأمن الحيوي والسلامة البيئية</b>\n"
     if bio_news:
         for item in bio_news[:3]:
-            report += f"• 🟡 <b>[تنبيه بيئي/حيوي]:</b> {item['title']}\n  🔗 <a href='{item['link']}'>المصدر</a>\n"
+            report += f"• 🟡 <b>[تنبيه بيئي/حيوي]:</b> {item['title']}\n  🔗 <a href=\"{item['link']}\">المصدر</a>\n"
     else:
         report += "• لم يتم رصد مخاطر حيوية أو انسكابات نفطية رئيسية اليوم.\n"
     report += "\n"
@@ -146,7 +152,7 @@ def generate_report():
     report += "⚠️ <b>5. الاضطرابات الجيوسياسية والممرات المائية</b>\n"
     if geo_news:
         for item in geo_news[:3]:
-            report += f"• 🔴 <b>[ممرات مائية/أزمات]:</b> {item['title']}\n  🔗 <a href='{item['link']}'>التفاصيل</a>\n"
+            report += f"• 🔴 <b>[ممرات مائية/أزمات]:</b> {item['title']}\n  🔗 <a href=\"{item['link']}\">التفاصيل</a>\n"
     else:
         report += "• استقرار حركة الملاحة في باب المندب ومضيق هرمز وقناة السويس.\n"
 
