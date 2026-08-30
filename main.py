@@ -1,6 +1,7 @@
 import os
 import requests
 import feedparser
+import yfinance as yf
 from datetime import datetime
 
 # --- 1. إعدادات Telegram ---
@@ -26,44 +27,72 @@ def send_telegram_message(text):
     else:
         print(f"فشل إرسال الرسالة: {response.text}")
 
-# --- 2. جلب مؤشرات السلع والنفط ---
+# --- 2. جلب مؤشرات السلع والنفط الحية ---
 def get_live_tickers():
-    """جلب أسعار النفط والأسواق (مبسط)"""
-    # يمكن ربطه بـ yfinance أو Yahoo Finance API
+    """جلب أسعار النفط المباشرة عبر yfinance"""
+    try:
+        brent = yf.Ticker("BZ=F")
+        price = brent.history(period="1d")['Close'].iloc[-1]
+        brent_str = f"${price:.2f}"
+    except Exception:
+        brent_str = "غير متوفر"
+
     return {
-        "brent": "$88.40 (▲ +1.4%)",
-        "wheat": "$542.10 (▼ -0.3%)",
-        "bdi": "1,845 (▲ +2.1%)"
+        "brent": brent_str,
+        "wheat": "$542.10", # مؤشر تقديري لحين ربطه بـ API مخصص
+        "bdi": "1,845"
     }
 
-# --- 3. مصادر RSS والكلمات المفتاحية ---
+# --- 3. مصادر RSS الموسعة والكلمات المفتاحية ---
 RSS_SOURCES = {
     "mewa": [
-        "https://www.spa.gov.sa/rss.xml",  # واس
+        "https://www.spa.gov.sa/rss.xml",                # واس
+        "https://www.alriyadh.com/section.economy.xml", # اقتصاد الرياض
+        "https://www.okaz.com.sa/rss/local"             # محلي عكاظ
     ],
     "global_risks": [
-        "https://news.un.org/feed/subscribe/ar/news/topic/health/feed/rss.xml", # صحة بيئية
-        "http://feeds.bbci.co.uk/news/world/rss.xml"
+        "https://news.un.org/feed/subscribe/ar/news/topic/health/feed/rss.xml", # صحة الأمم المتحدة
+        "http://feeds.bbci.co.uk/news/world/rss.xml",                          # BBC World
+        "https://www.aljazeera.net/aljazeerarss/a7c18663-711e-42b7-a3a8-4ed09860b0f7/73d0e1b4-532f-45ef-b135-bfd3d2cb29e8" # الجزيرة اقتصاد
     ]
 }
 
 KEYWORDS = {
-    "mewa": ["البيئة", "المياه", "الزراعة", "الأمن الغذائي", "القمح", "المخزون الاستراتيجي", "هسدا", "سد", "تحلية"],
-    "biosecurity": ["إنفلونزا الطيور", "جراد", "انسكاب", "تلوث", "سوسة النخيل", "جائحة", "فيروس", "حظر استيراد"],
-    "geopolitics": ["مضيق هرمز", "باب المندب", "قناة السويس", "البحر الأحمر", "تأمين بحري", "توترات"]
+    "mewa": [
+        "البيئة", "المياه", "الزراعة", "الأمن الغذائي", "القمح", "المخزون", "هسدا", "سد", "تحلية", 
+        "حصول", "استثمار زراعي", "حبوب", "مواشي", "صوامع", "غطاء نباتي"
+    ],
+    "biosecurity": [
+        "إنفلونزا", "جراد", "انسكاب", "تلوث", "سوسة", "جائحة", "فيروس", "حظر استيراد", 
+        "تفشي", "طوارئ صحية", "بقعة زيت", "سلامة الأغذية"
+    ],
+    "geopolitics": [
+        "مضيق", "هرمز", "باب المندب", "قناة السويس", "البحر الأحمر", "تأمين بحري", "توترات", 
+        "ناقلة", "حظر تصدير", "سلاسل الإمداد", "شحن بحري"
+    ]
 }
 
-def filter_feed(url, keywords):
-    """جلب وتصفية الأخبار حسب الكلمات المفتاحية"""
-    feed = feedparser.parse(url)
+def filter_feed(urls, keywords):
+    """جلب وتصفية الأخبار من عدة مصادر بدون تكرار"""
     matched_entries = []
+    seen_titles = set()
     
-    for entry in feed.entries[:15]:
-        title = entry.title
-        link = entry.link
-        # البحث عن الكلمات المفتاحية في العنوان
-        if any(kw.lower() in title.lower() for kw in keywords):
-            matched_entries.append({"title": title, "link": link})
+    for url in urls:
+        try:
+            feed = feedparser.parse(url)
+            for entry in feed.entries[:20]:
+                title = entry.title.strip()
+                link = entry.link
+                
+                if title in seen_titles:
+                    continue
+                
+                # مطابقة الكلمات المفتاحية
+                if any(kw.lower() in title.lower() for kw in keywords):
+                    matched_entries.append({"title": title, "link": link})
+                    seen_titles.add(title)
+        except Exception as e:
+            print(f"خطأ في قراءة المصدر {url}: {e}")
             
     return matched_entries
 
@@ -73,51 +102,43 @@ def generate_report():
     date_str = datetime.now().strftime("%Y-%m-%d")
     
     # جلب الأخبار وتصنيفها
-    mewa_news = []
-    for url in RSS_SOURCES["mewa"]:
-        mewa_news.extend(filter_feed(url, KEYWORDS["mewa"]))
-        
-    bio_news = []
-    for url in RSS_SOURCES["global_risks"]:
-        bio_news.extend(filter_feed(url, KEYWORDS["biosecurity"]))
-
-    geo_news = []
-    for url in RSS_SOURCES["global_risks"]:
-        geo_news.extend(filter_feed(url, KEYWORDS["geopolitics"]))
+    mewa_news = filter_feed(RSS_SOURCES["mewa"], KEYWORDS["mewa"])
+    bio_news = filter_feed(RSS_SOURCES["global_risks"], KEYWORDS["biosecurity"])
+    geo_news = filter_feed(RSS_SOURCES["global_risks"], KEYWORDS["geopolitics"])
 
     # بناء نص الرسالة بـ HTML
-    report = f"🚨 <b>النشرة الاستراتيجية للإنذار المبكر والأمن الحيوي</b>\n"
-    report += f"📅 <i>{date_str}</i> | ⏱️ <i>التحديث التلقائي</i>\n"
+    report = f"🚨 <b>الرصد اليومي | Daily Intelligence Briefing</b>\n"
+    report += f"📅 <i>{date_str}</i> | ⏱️ <i>تحديث آلي</i>\n"
     report += "----------------------------------------\n\n"
     
     report += "📊 <b>1. شريط المؤشرات والسلع الحيوية</b>\n"
-    report += f"• 🛢️ <b>نفط برنت:</b> {tickers['brent']}\n"
+    report += f"• 🛢️ <b>نفط برنت المباشر:</b> {tickers['brent']}\n"
     report += f"• 🌾 <b>القمح العالمي:</b> {tickers['wheat']}\n"
     report += f"• ⛽ <b>مؤشر الشحن (BDI):</b> {tickers['bdi']}\n\n"
 
     report += "💡 <b>2. الخلاصة التنفيذية (Executive TL;DR)</b>\n"
-    report += "<i>> رصد استقرار الإمدادات الوطنية مع متابعة مستمرة لمؤشرات سلاسل الإمداد والممرّات المائية والتحذيرات البيئية.</i>\n\n"
+    report += "<i>> متابعة مستمرة لمستجدات الأمن المائي والغذائي، واستقرار حركة الملاحة والتنبيهات البيئية الإقليمية.</i>\n\n"
 
     report += "🌱 <b>3. الأمن المائي والغذائي والزراعي (MEWA والجهات التابعة)</b>\n"
     if mewa_news:
-        for item in mewa_news[:3]:
-            report += f"• 🟢 <b>[حدث محلي]:</b> {item['title']}\n  🔗 <a href='{item['link']}'>رابط الخبر</a>\n"
+        for item in mewa_news[:4]:
+            report += f"• 🟢 <b>[خبر محلي/قطاعي]:</b> {item['title']}\n  🔗 <a href='{item['link']}'>رابط الخبر</a>\n"
     else:
-        report += "• لا توجد مستجدات حرجة مسجلة خلال الساعات الماضية.\n"
+        report += "• لا توجد مستجدات حرجة مسجلة في القطاع خلال الساعات الماضية.\n"
     report += "\n"
 
     report += "☣️ <b>4. الأمن الحيوي والسلامة البيئية</b>\n"
     if bio_news:
-        for item in bio_news[:2]:
+        for item in bio_news[:3]:
             report += f"• 🟡 <b>[تنبيه بيئي/حيوي]:</b> {item['title']}\n  🔗 <a href='{item['link']}'>المصدر</a>\n"
     else:
-        report += "• لم يتم رصد تهديدات حيوية أو انسكابات نفطية رئيسية.\n"
+        report += "• لم يتم رصد مخاطر حيوية أو انسكابات نفطية رئيسية اليوم.\n"
     report += "\n"
 
     report += "⚠️ <b>5. الاضطرابات الجيوسياسية والممرات المائية</b>\n"
     if geo_news:
-        for item in geo_news[:2]:
-            report += f"• 🔴 <b>[ممرات مائية]:</b> {item['title']}\n  🔗 <a href='{item['link']}'>التفاصيل</a>\n"
+        for item in geo_news[:3]:
+            report += f"• 🔴 <b>[ممرات مائية/أزمات]:</b> {item['title']}\n  🔗 <a href='{item['link']}'>التفاصيل</a>\n"
     else:
         report += "• استقرار حركة الملاحة في باب المندب ومضيق هرمز وقناة السويس.\n"
 
