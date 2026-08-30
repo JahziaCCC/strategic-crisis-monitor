@@ -3,6 +3,7 @@ import requests
 import feedparser
 import yfinance as yf
 import html
+from urllib.parse import quote, unquote, urlparse, urlunparse
 from datetime import datetime
 
 # --- 1. إعدادات Telegram ---
@@ -27,6 +28,21 @@ def send_telegram_message(text):
         print("تم إرسال النشرة بنجاح إلى تليجرام.")
     else:
         print(f"فشل إرسال الرسالة: {response.text}")
+
+def clean_url(url_str):
+    """تنظيف ترميز الرابط وإصلاحه ليكون متوافقاً تماماً مع Telegram"""
+    url_str = url_str.strip()
+    if url_str.lower().startswith("https://"):
+        url_str = "https://" + url_str[8:]
+    elif url_str.lower().startswith("http://"):
+        url_str = "http://" + url_str[7:]
+    
+    # تفكيك الرابط وإعادة ترميز الأحرف العربية والخاصة بـ URL Encoding
+    parsed = urlparse(url_str)
+    encoded_path = quote(unquote(parsed.path))
+    encoded_query = quote(unquote(parsed.query), safe="=&")
+    clean_parts = (parsed.scheme, parsed.netloc, encoded_path, parsed.params, encoded_query, parsed.fragment)
+    return urlunparse(clean_parts)
 
 # --- 2. جلب مؤشرات السلع والنفط الحية ---
 def get_live_tickers():
@@ -79,7 +95,7 @@ KEYWORDS = {
 }
 
 def filter_feed(urls, keywords):
-    """جلب وتصفية الأخبار وضبط تنسيق الروابط لتكون صالحة للنقر في تليجرام"""
+    """جلب وتصفية الأخبار وتجهيز الروابط والنصوص بصيغة آمنة"""
     matched_entries = []
     seen_titles = set()
     
@@ -90,15 +106,8 @@ def filter_feed(urls, keywords):
                 title = entry.title.strip()
                 raw_link = entry.link.strip()
                 
-                # تصحيح بداية الرابط لضمان مطابقة https بالكامل بحروف صغيرة
-                if raw_link.startswith("Https://"):
-                    raw_link = "https://" + raw_link[8:]
-                elif raw_link.startswith("Http://"):
-                    raw_link = "http://" + raw_link[7:]
-                
-                # تنظيف الرموز الخاصة
+                clean_link = clean_url(raw_link)
                 clean_title = html.escape(title)
-                clean_link = html.escape(raw_link)
                 
                 if clean_title in seen_titles:
                     continue
@@ -136,7 +145,7 @@ def generate_report():
     report += "🌱 <b>3. الأمن المائي والغذائي والزراعي (MEWA والجهات التابعة)</b>\n"
     if mewa_news:
         for item in mewa_news[:4]:
-            report += f"• 🟢 <b>[خبر محلي/قطاعي]:</b> {item['title']}\n  🔗 <a href=\"{item['link']}\">رابط الخبر</a>\n"
+            report += f"• 🟢 <b>[خبر محلي/قطاعي]:</b> {item['title']}\n  🔗 <a href=\"{item['link']}\">المصدر</a>\n"
     else:
         report += "• لا توجد مستجدات حرجة مسجلة في القطاع خلال الساعات الماضية.\n"
     report += "\n"
@@ -152,7 +161,7 @@ def generate_report():
     report += "⚠️ <b>5. الاضطرابات الجيوسياسية والممرات المائية</b>\n"
     if geo_news:
         for item in geo_news[:3]:
-            report += f"• 🔴 <b>[ممرات مائية/أزمات]:</b> {item['title']}\n  🔗 <a href=\"{item['link']}\">التفاصيل</a>\n"
+            report += f"• 🔴 <b>[ممرات مائية/أزمات]:</b> {item['title']}\n  🔗 <a href=\"{item['link']}\">المصدر</a>\n"
     else:
         report += "• استقرار حركة الملاحة في باب المندب ومضيق هرمز وقناة السويس.\n"
 
