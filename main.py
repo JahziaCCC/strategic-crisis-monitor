@@ -2,6 +2,7 @@ import os
 import requests
 import feedparser
 import yfinance as yf
+import html
 from datetime import datetime
 
 # --- 1. إعدادات Telegram ---
@@ -37,10 +38,10 @@ def get_live_tickers():
             last_price = hist['Close'].iloc[-1]
             brent_str = f"${last_price:.2f}"
         else:
-            brent_str = "$88.40"
+            brent_str = "$88.10"
     except Exception as e:
         print(f"خطأ في جلب النفط: {e}")
-        brent_str = "$88.40"
+        brent_str = "$88.10"
 
     return {
         "brent": brent_str,
@@ -78,7 +79,7 @@ KEYWORDS = {
 }
 
 def filter_feed(urls, keywords):
-    """جلب وتصفية الأخبار من عدة مصادر بدون تكرار"""
+    """جلب وتصفية الأخبار مع تنظيف نصوص الـ HTML والروابط لضمان عملها في تليجرام"""
     matched_entries = []
     seen_titles = set()
     
@@ -87,14 +88,18 @@ def filter_feed(urls, keywords):
             feed = feedparser.parse(url)
             for entry in feed.entries[:20]:
                 title = entry.title.strip()
-                link = entry.link
+                link = entry.link.strip()
                 
-                if title in seen_titles:
+                # تنظيف الرموز الخاصة بالروابط والنصوص لمتوافقات Telegram HTML
+                clean_title = html.escape(title)
+                clean_link = html.escape(link)
+                
+                if clean_title in seen_titles:
                     continue
                 
                 if any(kw.lower() in title.lower() for kw in keywords):
-                    matched_entries.append({"title": title, "link": link})
-                    seen_titles.add(title)
+                    matched_entries.append({"title": clean_title, "link": clean_link})
+                    seen_titles.add(clean_title)
         except Exception as e:
             print(f"خطأ في قراءة المصدر {url}: {e}")
             
